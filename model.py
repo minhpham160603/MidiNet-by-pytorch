@@ -10,6 +10,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from ops import *
 
+pitch_range = 128
 
 class sample_generator(nn.Module):
     def __init__(self):
@@ -98,9 +99,9 @@ class generator(nn.Module):
         h3_prev = lrelu(batch_norm_2d(self.h3_prev(h2_prev)),0.2)  #[72, 16, 2, 1])
 
         yb = y.view(batch_size,  self.y_dim, 1, 1)  #(72,13,1,1)
-
+        # print(y.shape)
         z = torch.cat((z,y),1)         #(72,113)
-
+        # print(z.shape)
         h0 = F.relu(batch_norm_1d(self.linear1(z)))    #(72,1024)
         h0 = torch.cat((h0,y),1)   #(72,1037)
 

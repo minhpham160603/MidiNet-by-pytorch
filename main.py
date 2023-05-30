@@ -10,6 +10,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from model import *
 from ops import *
+import os
 
 class get_dataloader(object):
     def __init__(self, data, prev_data, y):
@@ -24,6 +25,24 @@ class get_dataloader(object):
 
     def __len__(self):
         return self.size
+    
+def creat_directory(directory):
+    # Create the directory if it doesn't exist
+    print(directory)
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+        print(f"Created directory: {directory}")
+
+def clean_folder(folder_path):
+    # Iterate over all files in the folder
+    for filename in os.listdir(folder_path):
+        file_path = os.path.join(folder_path, filename)
+        
+        # Check if the path is a file (not a directory)
+        if os.path.isfile(file_path):
+            # Delete the file
+            os.remove(file_path)
+            print(f"Deleted file: {file_path}")
 
 def load_data():
     #######load the data########
@@ -31,13 +50,12 @@ def load_data():
     check_range_ed = 129
     pitch_range = check_range_ed - check_range_st-1
     # print('pitch range: {}'.format(pitch_range))
-
-    X_tr = np.load('your training x')
-    prev_X_tr = np.load('your training prev x')
-    y_tr    = np.load('your training chord')
+    path = "./dataset/augmented/"
+    X_tr = np.load(os.path.join(path, "X_tr.npy"))
+    prev_X_tr = np.load(os.path.join(path, "prev_X_tr.npy"))
+    y_tr    = np.load(os.path.join(path, "Y_tr.npy"))
     X_tr = X_tr[:,:,:,check_range_st:check_range_ed]
     prev_X_tr = prev_X_tr[:,:,:,check_range_st:check_range_ed]
-
     #test data shape(5048, 1, 16, 128)
     #train data shape(45448, 1, 16, 128)
 
@@ -50,30 +68,57 @@ def load_data():
     #######################################
     return train_loader
 
+def count_params(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+def get_preset(model, attempt):
+    if model == 3:
+        if attempt == 1:
+            lr_d = 0.0002
+            lr_g = 0.0002
+            return lr_d, lr_g, 1.0 
+        if attempt == 2:
+            lr_d = 0.0001
+            lr_g = 0.0002
+            return lr_d, lr_g, 0.9
+
 def main():
-    is_train = 1
+    is_train = 0
     is_draw = 0
-    is_sample = 0
+    is_sample = 1
 
-    epochs = 20
-    lr = 0.0002
+    model_version = int(input("model version: "))
+    attempt = int(input("attempt: "))
+    init_path = f"./{model_version}/{model_version}.{attempt}"
 
+    epochs = 100
+    lr_d, lr_g, softer = get_preset(model_version, attempt)
     check_range_st = 0
     check_range_ed = 129
     pitch_range = check_range_ed - check_range_st-1
     
     device = torch.device('cuda')
     train_loader = load_data()
+    loss_path = init_path + "/loss"
+    img_path = init_path + "/img_file"
+    model_path = init_path + "/models"
+    creat_directory(loss_path)
+    creat_directory(img_path)
+    creat_directory(model_path)
 
     if is_train == 1 :
+        clean_folder(loss_path)
+        clean_folder(img_path)
+        clean_folder(model_path)
         netG = generator(pitch_range).to(device)
         netD = discriminator(pitch_range).to(device)  
 
         netD.train()
         netG.train()
-        optimizerD = optim.Adam(netD.parameters(), lr=lr, betas=(0.5, 0.999))
-        optimizerG = optim.Adam(netG.parameters(), lr=lr, betas=(0.5, 0.999)) 
-             
+        optimizerD = optim.Adam(netD.parameters(), lr=lr_g, betas=(0.5, 0.999))
+        optimizerG = optim.Adam(netG.parameters(), lr=lr_g, betas=(0.5, 0.999)) 
+        print("Number of params net D: ", count_params(netD))
+        print("Number of params net G: ", count_params(netG))
         batch_size = 72
         nz = 100
         fixed_noise = torch.randn(batch_size, nz, device=device)
@@ -99,6 +144,7 @@ def main():
                 
                 ############################
                 # (1) Update D network: maximize log(D(x)) + log(1 - D(G(z)))
+                # We need D(x) closed to 1 and D(G(z)) closed to 0 so that log close to 0
                 ###########################
                 # train with real
                 netD.zero_grad()
@@ -111,7 +157,7 @@ def main():
                 D, D_logits, fm = netD(real_cpu,chord_cpu,batch_size,pitch_range)
 
                 #####loss
-                d_loss_real = reduce_mean(sigmoid_cross_entropy_with_logits(D_logits, 0.9*torch.ones_like(D)))
+                d_loss_real = reduce_mean(sigmoid_cross_entropy_with_logits(D_logits, softer*torch.ones_like(D)))
                 d_loss_real.backward(retain_graph=True)
                 D_x = D.mean().item()
                 sum_D_x += D_x 
@@ -121,7 +167,7 @@ def main():
                 fake = netG(noise,prev_data_cpu,chord_cpu,batch_size,pitch_range)
                 label.fill_(fake_label)
                 D_, D_logits_, fm_ = netD(fake.detach(),chord_cpu,batch_size,pitch_range)
-                d_loss_fake = reduce_mean(sigmoid_cross_entropy_with_logits(D_logits_, torch.zeros_like(D_)))
+                d_loss_fake = reduce_mean(sigmoid_cross_entropy_with_logits(D_logits_, (1.0 - softer)*torch.ones_like(D_)))
       
                 d_loss_fake.backward(retain_graph=True)
                 D_G_z1 = D_.mean().item()
@@ -183,47 +229,59 @@ def main():
                 sum_D_G_z += D_G_z2
                 optimizerG.step()
             
-                if epoch % 5 == 0:
-                    print('[%d/%d][%d/%d] Loss_D: %.4f Loss_G: %.4f D(x): %.4f D(G(z)): %.4f / %.4f'
-                          % (epoch, epochs, i, len(train_loader),
-                             errD, errG, D_x, D_G_z1, D_G_z2))
+                # if epoch % 5 == 0:
+                #     print('[%d/%d][%d/%d] Loss_D: %.4f Loss_G: %.4f D(x): %.4f D(G(z)): %.4f / %.4f'
+                #           % (epoch, epochs, i, len(train_loader),
+                #              errD, errG, D_x, D_G_z1, D_G_z2))
 
-                if i % 100 == 0:
+                if i % 100 == 0 and (epoch % 100 == 0 or epoch == epochs - 1):
+                    # vutils.save_image(real_cpu,
+                    #         '%s/real_samples.png' % f'file/{model_version}.{attempt}',
+                    #         normalize=True)
+
                     vutils.save_image(real_cpu,
-                            '%s/real_samples.png' % 'file',
+                            os.path.join(img_path, "real_sample.png"),
                             normalize=True)
                     fake = netG(fixed_noise,prev_data_cpu,chord_cpu,batch_size,pitch_range)
+                    # vutils.save_image(fake.detach(),
+                    #         '%s/fake_samples_epoch_%03d.png' % ('file', epoch),
+                    #         normalize=True)
                     vutils.save_image(fake.detach(),
-                            '%s/fake_samples_epoch_%03d.png' % ('file', epoch),
+                            os.path.join(img_path, f"fake_sample_epochs_{epoch}.png"),
                             normalize=True)
-
-            average_lossD = (sum_lossD / len(train_loader.dataset))
-            average_lossG = (sum_lossG / len(train_loader.dataset))
-            average_D_x = (sum_D_x / len(train_loader.dataset))
-            average_D_G_z = (sum_D_G_z / len(train_loader.dataset))
-
+                    
+                    
+            average_lossD = (sum_lossD / len(train_loader))
+            average_lossG = (sum_lossG / len(train_loader))
+            average_D_x = (sum_D_x / len(train_loader))
+            average_D_G_z = (sum_D_G_z / len(train_loader))
             lossD_list.append(average_lossD)
             lossG_list.append(average_lossG)            
             D_x_list.append(average_D_x)
             D_G_z_list.append(average_D_G_z)
 
             print('==> Epoch: {} Average lossD: {:.10f} average_lossG: {:.10f},average D(x): {:.10f},average D(G(z)): {:.10f} '.format(
-              epoch, average_lossD,average_lossG,average_D_x, average_D_G_z)) 
+              epoch, average_lossD, average_lossG, average_D_x, average_D_G_z)) 
 
-        np.save('lossD_list.npy',lossD_list)
-        np.save('lossG_list.npy',lossG_list)
-        np.save('lossD_list_all.npy',lossD_list_all)
-        np.save('lossG_list_all.npy',lossG_list_all)
-        np.save('D_x_list.npy',D_x_list)
-        np.save('D_G_z_list.npy',D_G_z_list)
+
+        lossG_list_tensor = torch.tensor(lossG_list)
+        np.save(os.path.join(loss_path, 'lossD_list.npy'), lossD_list)
+        np.save(os.path.join(loss_path, 'lossG_list.npy'), lossG_list_tensor.cpu().numpy())
+        np.save(os.path.join(loss_path, 'lossD_list_all.npy'),lossD_list_all)
+        np.save(os.path.join(loss_path, 'lossG_list_all.npy'),lossG_list_all)
+        np.save(os.path.join(loss_path, 'D_x_list.npy'),D_x_list)
+        np.save(os.path.join(loss_path, 'D_G_z_list.npy'),D_G_z_list)
         
         # do checkpointing
-        torch.save(netG.state_dict(), '%s/netG_epoch_%d.pth' % ('../models', epoch))
-        torch.save(netD.state_dict(), '%s/netD_epoch_%d.pth' % ('../models', epoch))
+
+
+        torch.save(netG.state_dict(), os.path.join(model_path, f'netG_epoch_{epoch}.pth'))
+        torch.save(netD.state_dict(), os.path.join(model_path, f'netD_epoch_{epoch}.pth'))
 
     if is_draw == 1:
-        lossD_print = np.load('lossD_list.npy')
-        lossG_print = np.load('lossG_list.npy')
+        
+        lossD_print = np.load(os.path.join(loss_path, 'lossD_list.npy'))
+        lossG_print = np.load(os.path.join(loss_path, 'lossG_list.npy'))
         length = lossG_print.shape[0]
 
         x = np.linspace(0, length-1, length)
@@ -235,23 +293,26 @@ def main():
         plt.legend(loc='upper right')
         plt.xlabel('data')
         plt.ylabel('loss')
-        plt.savefig('where you want to save/lr='+ str(lr) +'_epoch='+str(epochs)+'.png')
+
+        log_path = init_path + "/log"
+        creat_directory(log_path)
+        plt.savefig(os.path.join(log_path, f'lr={lr_g}_epoch={epochs}.png'))
 
     if is_sample == 1:
         batch_size = 8
         nz = 100
         n_bars = 7
-        X_te = np.load('your testing x')
-        prev_X_te = np.load('your testing prev x')
+        X_te = np.load('./dataset/augmented/X_te.npy')
+        prev_X_te = np.load('./dataset/augmented/prev_X_te.npy')
         prev_X_te = prev_X_te[:,:,check_range_st:check_range_ed,:]
-        y_te    = np.load('yourd chord')
+        y_te    = np.load('./dataset/augmented/Y_te.npy')
        
         test_iter = get_dataloader(X_te,prev_X_te,y_te)
         kwargs = {'num_workers': 4, 'pin_memory': True}# if args.cuda else {}
         test_loader = DataLoader(test_iter, batch_size=batch_size, shuffle=False, **kwargs)
 
         netG = sample_generator()
-        netG.load_state_dict(torch.load('your model'))
+        netG.load_state_dict(torch.load(os.path.join(model_path,'netG_epoch_99.pth'))) ###
 
         output_songs = []
         output_chords = []
@@ -273,14 +334,20 @@ def main():
                 else:
                     prev = list_song[bar-1].view(1,1,16,128)
                 sample = netG(z, prev, y, 1,pitch_range)
-                list_song.append(sample)
+                # print(sample.shape)
+                list_song.append(sample.detach().cpu())
                 list_chord.append(y.numpy())
-
+            # if len(list_song) != 8:
+            #     print(len(list_song), [x.shape for x in list_song])
             print('num of output_songs: {}'.format(len(output_songs)))
-            output_songs.append(list_song)
+            output_songs.append([bar.numpy() for bar in list_song])
             output_chords.append(list_chord)
-        np.save('output_songs.npy',np.asarray(output_songs))
-        np.save('output_chords.npy',np.asarray(output_chords))
+        # output_chords_tensor = torch.tensor(output_chords)
+
+        output_path = init_path + "/output"
+        creat_directory(output_path)
+        np.save(os.path.join(output_path, 'output_songs.npy'),output_songs)
+        np.save(os.path.join(output_path, 'output_chords.npy'),output_chords)
 
         print('creation completed, check out what I make!')
 
