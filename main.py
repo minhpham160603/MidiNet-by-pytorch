@@ -8,7 +8,7 @@ import torchvision.utils as vutils
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from model import *
+from model2 import *
 from ops import *
 import os
 
@@ -74,18 +74,26 @@ def count_params(model):
 def get_preset(model, attempt):
     if model == 3:
         if attempt == 1:
-            lr_d = 0.0002
-            lr_g = 0.0002
-            return lr_d, lr_g, 1.0 
+            return 0.0002, 0.0002, 1.0, 0.01, 0.1 
         if attempt == 2:
-            lr_d = 0.0001
-            lr_g = 0.0002
-            return lr_d, lr_g, 0.9
+            return 0.0001, 0.0002, 0.9, 0.01, 0.1
+    if model == 1:
+        if attempt == 1:
+            return 0.0002, 0.0002, 1.0, 0.1, 1.0
+        if attempt == 2:
+            return 0.0001, 0.0002, 0.9, 0.1, 1.0
+    if model == 2:
+        if attempt == 1:
+            return 0.0002, 0.0002, 1.0, 0.01, 0.1
+        if attempt == 2:
+            return 0.0001, 0.0002, 0.9, 0.01, 0.1
 
 def main():
-    is_train = 0
-    is_draw = 1
-    is_sample = 1
+    modes = input("train | draw |sample: ")
+    modes = modes.split(" ")
+    is_train = int(modes[0])
+    is_draw = int(modes[1])
+    is_sample = int(modes[2])
 
     model_version = int(input("model version: "))
     attempt = int(input("attempt: "))
@@ -95,9 +103,10 @@ def main():
         aug_path = "not_augmented"
 
     init_path = f"./{model_version}/{aug_path}/{model_version}.{attempt}"
+    creat_directory(init_path)
 
     epochs = 100
-    lr_d, lr_g, softer = get_preset(model_version, attempt)
+    lr_d, lr_g, softer, fm_1, fm_2 = get_preset(model_version, attempt)
     check_range_st = 0
     check_range_ed = 129
     pitch_range = check_range_ed - check_range_st-1
@@ -219,12 +228,12 @@ def main():
                 features_from_i = reduce_mean_0(fm)
                 loss_ = nn.MSELoss(reduction='sum')
                 feature_l2_loss = loss_(features_from_g, features_from_i)/2
-                fm_g_loss1 =torch.mul(feature_l2_loss, 0.1)
+                fm_g_loss1 =torch.mul(feature_l2_loss, fm_2)
 
                 mean_image_from_g = reduce_mean_0(fake)
                 smean_image_from_i = reduce_mean_0(real_cpu)
                 mean_l2_loss = loss_(mean_image_from_g, smean_image_from_i)/2
-                fm_g_loss2 = torch.mul(mean_l2_loss, 0.01)
+                fm_g_loss2 = torch.mul(mean_l2_loss, fm_1)
                 errG = g_loss0 + fm_g_loss1 + fm_g_loss2
                 sum_lossG +=errG
                 errG.backward()
@@ -319,7 +328,7 @@ def main():
         test_loader = DataLoader(test_iter, batch_size=batch_size, shuffle=False, **kwargs)
 
         netG = sample_generator()
-        netG.load_state_dict(torch.load(os.path.join(model_path,'netG_epoch_60.pth'))) ###
+        netG.load_state_dict(torch.load(os.path.join(model_path,'netG_epoch_70.pth'))) ###
 
         output_songs = []
         output_chords = []
