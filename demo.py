@@ -7,7 +7,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import ipdb
 import os
-from main import creat_directory
+from main import creat_directory, clean_folder
 import pypianoroll
 
 
@@ -108,38 +108,44 @@ def make_chord_track(chord,instrument,volume=40):
 def main():
     model_ver = int(input("Model: "))
     attempt = int(input("Attempt: "))
-    init_path = f"./{model_ver}/{model_ver}.{attempt}"
+    is_augmented = int(input("augmented: ")) 
+    aug_path = "augmented"
+    if not is_augmented:
+        aug_path = "not_augmented"
+
+    init_path = f"./{model_ver}/{aug_path}/{model_ver}.{attempt}"
     output_path = init_path + "/output"
-    data = np.load(os.path.join(output_path, 'output_songs.npy'))
-    chord = np.load(os.path.join(output_path, 'output_chords.npy'))
+    data = np.load(os.path.join(output_path, 'output_songs.npy'))  # m, 1, 16, 128
+    chord = np.load(os.path.join(output_path, 'output_chords.npy')) # m, 13
     # instrument = input('which instrument you want to play? from 0 to 128,default=0:')
     # volume     = input('how loud you want to play? from 1 to 127,default= 40:')
-    instrument = 16
+    instrument = 0
     volume = 40
     sample_name = "test_song"
-    for i in range(5):
-        # if i % 100 == 0:
-        one_song = data[i]
-        song = []
-        for item in one_song:
-            item = item.reshape(16,128)
-            song.append(item)
-
-        eight_bar = reshape_bar(song)
-        eight_bar_binarized = find_pitch(eight_bar,volume)
-        track = make_a_track(eight_bar_binarized,instrument=instrument)
-        
-        save_path = init_path + "/demo"
-        creat_directory(save_path)
-        song_chord = chord_list(chord,i)
-        chord_player = get_chord(song_chord)
-        np.save(os.path.join(save_path, f'chord_{i}.npy'),chord_player)
-        chord_track = make_chord_track(chord_player,instrument,volume)
-        multitrack = make_a_demo(track,chord_track,i)
-        multitrack.plot()
-        plt.savefig(os.path.join(save_path, f"{sample_name}_{i}.png"))
-        pypianoroll.write(os.path.join(save_path, f"{sample_name}_{i}.mid"), multitrack=multitrack)
-        print(str(sample_name)+'saved')
+    save_path = init_path + "/demo"
+    creat_directory(save_path)
+    clean_folder(save_path)
+    for i in range(len(data)):
+        if i % 20 == 0:
+            one_song = data[i]
+            song = []
+            for item in one_song:
+                item = item.reshape(16,128)
+                song.append(item)
+            eight_bar = reshape_bar(song)
+            eight_bar_binarized = find_pitch(eight_bar,volume)
+            track = make_a_track(eight_bar_binarized,instrument=instrument)
+            
+            song_chord = chord_list(chord,i)
+            chord_player = get_chord(song_chord)
+            np.save(os.path.join(save_path, f'chord_{i}.npy'),chord_player)
+            chord_track = make_chord_track(chord_player,instrument,volume)
+            multitrack = make_a_demo(track,chord_track,i)
+            multitrack.plot()
+            plt.savefig(os.path.join(save_path, f"{sample_name}_{i}.png"))
+            pypianoroll.write(os.path.join(save_path, f"{sample_name}_{i}.mid"), multitrack=multitrack)
+            print(str(sample_name)+'saved')
+            os.remove(os.path.join(save_path, f'chord_{i}.npy'))
 
 
 

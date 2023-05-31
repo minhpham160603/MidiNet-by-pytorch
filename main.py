@@ -16,8 +16,8 @@ class get_dataloader(object):
     def __init__(self, data, prev_data, y):
         self.size = data.shape[0]
         self.data = torch.from_numpy(data).float()
-        self.prev_data = torch.from_numpy(prev_data).float()
-        self.y   = torch.from_numpy(y).float()
+        self.prev_data = torch.from_numpy(prev_data).float()  # (m, 1, 16, 128)
+        self.y   = torch.from_numpy(y).float()  # (m, 13)
 
          # self.label = np.array(label)
     def __getitem__(self, index):
@@ -44,13 +44,13 @@ def clean_folder(folder_path):
             os.remove(file_path)
             print(f"Deleted file: {file_path}")
 
-def load_data():
+def load_data(augpath):
     #######load the data########
     check_range_st = 0
     check_range_ed = 129
     pitch_range = check_range_ed - check_range_st-1
     # print('pitch range: {}'.format(pitch_range))
-    path = "./dataset/augmented/"
+    path = f"./dataset/{augpath}/"
     X_tr = np.load(os.path.join(path, "X_tr.npy"))
     prev_X_tr = np.load(os.path.join(path, "prev_X_tr.npy"))
     y_tr    = np.load(os.path.join(path, "Y_tr.npy"))
@@ -84,12 +84,17 @@ def get_preset(model, attempt):
 
 def main():
     is_train = 0
-    is_draw = 0
+    is_draw = 1
     is_sample = 1
 
     model_version = int(input("model version: "))
     attempt = int(input("attempt: "))
-    init_path = f"./{model_version}/{model_version}.{attempt}"
+    is_augmented = int(input("augmented: ")) 
+    aug_path = "augmented"
+    if not is_augmented:
+        aug_path = "not_augmented"
+
+    init_path = f"./{model_version}/{aug_path}/{model_version}.{attempt}"
 
     epochs = 100
     lr_d, lr_g, softer = get_preset(model_version, attempt)
@@ -98,7 +103,7 @@ def main():
     pitch_range = check_range_ed - check_range_st-1
     
     device = torch.device('cuda')
-    train_loader = load_data()
+    train_loader = load_data(aug_path)
     loss_path = init_path + "/loss"
     img_path = init_path + "/img_file"
     model_path = init_path + "/models"
@@ -138,8 +143,8 @@ def main():
         for epoch in range(epochs):
             sum_lossD = 0
             sum_lossG = 0
-            sum_D_x   = 0
-            sum_D_G_z = 0
+            sum_D_x   = 0  # X: real data, D(X): 0 - 1;
+            sum_D_G_z = 0  # G(z): output of generator - fake data D(G(z)): [0, 1]
             for i, (data,prev_data,chord) in enumerate(train_loader, 0):
                 
                 ############################
@@ -249,8 +254,11 @@ def main():
                     vutils.save_image(fake.detach(),
                             os.path.join(img_path, f"fake_sample_epochs_{epoch}.png"),
                             normalize=True)
-                    
-                    
+
+            if epoch % 10 == 0:
+                torch.save(netG.state_dict(), os.path.join(model_path, f'netG_epoch_{epoch}.pth'))
+                torch.save(netD.state_dict(), os.path.join(model_path, f'netD_epoch_{epoch}.pth'))    
+
             average_lossD = (sum_lossD / len(train_loader))
             average_lossG = (sum_lossG / len(train_loader))
             average_D_x = (sum_D_x / len(train_loader))
@@ -275,8 +283,7 @@ def main():
         # do checkpointing
 
 
-        torch.save(netG.state_dict(), os.path.join(model_path, f'netG_epoch_{epoch}.pth'))
-        torch.save(netD.state_dict(), os.path.join(model_path, f'netD_epoch_{epoch}.pth'))
+        
 
     if is_draw == 1:
         
@@ -312,7 +319,7 @@ def main():
         test_loader = DataLoader(test_iter, batch_size=batch_size, shuffle=False, **kwargs)
 
         netG = sample_generator()
-        netG.load_state_dict(torch.load(os.path.join(model_path,'netG_epoch_99.pth'))) ###
+        netG.load_state_dict(torch.load(os.path.join(model_path,'netG_epoch_60.pth'))) ###
 
         output_songs = []
         output_chords = []
@@ -356,3 +363,12 @@ if __name__ == "__main__" :
 
     main()
 
+
+"""
+To-do:
+- Train model 3: 
+    - with augmented and not augmented 
+        - train stable or not, how is convergence, equilibrium, loss
+        - compare sample, listen,...
+    - save more models at each 5 or 10 epochs, compare model at each epochs. (2 model same epochs, 1 models different epochs)
+"""

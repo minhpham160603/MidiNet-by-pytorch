@@ -96,7 +96,7 @@ class generator(nn.Module):
         h0_prev = lrelu(batch_norm_2d(self.h0_prev(prev_x)),0.2)   #[72, 16, 16, 1]
         h1_prev = lrelu(batch_norm_2d(self.h1_prev(h0_prev)),0.2)  #[72, 16, 8, 1]
         h2_prev = lrelu(batch_norm_2d(self.h2_prev(h1_prev)),0.2)  #[72, 16, 4, 1]
-        h3_prev = lrelu(batch_norm_2d(self.h3_prev(h2_prev)),0.2)  #[72, 16, 2, 1])
+        h3_prev = lrelu(batch_norm_2d(self.h3_prev(h2_prev)),0.2)  #[72, 16, 2, 1]
 
         yb = y.view(batch_size,  self.y_dim, 1, 1)  #(72,13,1,1)
         # print(y.shape)
